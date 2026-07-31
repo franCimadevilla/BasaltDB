@@ -47,7 +47,13 @@ impl HeapFile {
     /// written are visible after a restart.
     pub fn open(path: &Path) -> Result<Self> {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
-        let page_count = (file.metadata()?.len() / PAGE_SIZE as u64) as u32;
+        let len = file.metadata()?.len();
+        if len % PAGE_SIZE as u64 != 0 {
+            return Err(Error::Corrupt(format!(
+                "heap file length {len} is not a multiple of PAGE_SIZE ({PAGE_SIZE})"
+            )));
+        }
+        let page_count = (len / PAGE_SIZE as u64) as u32;
         Ok(Self { file, page_count, free_pages: Vec::new() })
     }
 

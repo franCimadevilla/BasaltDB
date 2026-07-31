@@ -115,8 +115,12 @@ pub fn deserialize(bytes: &[u8]) -> Result<Vec<Value>> {
                 values.push(Value::Integer(n));
             }
             TAG_VARCHAR => {
-                let len = read_u32(bytes, pos) as usize;
-                pos += 4;
+                let raw_len = take(bytes, &mut pos, 4)?;
+                let len = u32::from_be_bytes(
+                    raw_len
+                        .try_into()
+                        .map_err(|_| Error::Deserialize("bad varchar length".into()))?,
+                ) as usize;
                 let raw = take(bytes, &mut pos, len)?;
                 let s = String::from_utf8(raw.to_vec())
                     .map_err(|e| Error::Deserialize(format!("invalid UTF-8: {e}")))?;
