@@ -1,0 +1,7 @@
+# Pin the toolchain so plain `cargo build`/`cargo test` work on this machine.
+#
+# The default msvc toolchain cannot link here because the MSVC Build Tools are
+# not installed. The GNU toolchain bundles a MinGW-w64 linker. Remove this file
+# once a working MSVC linker (or a preferred toolchain) is installed.
+[toolchain]
+channel = "stable-x86_64-pc-windows-gnu"
