@@ -1,6 +1,9 @@
 //! # BasaltDB
 //!
-//! TODO: A brief description of what the library does.
+//! An educational relational database engine implemented in Rust.
+//!
+//! Development follows the roadmap in `docs/phases/`; the storage engine
+//! (Phase 1) lives in [`storage`], with error handling in [`error`].
 //!
 //! ## Example
 //!
