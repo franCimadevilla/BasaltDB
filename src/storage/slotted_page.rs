@@ -113,7 +113,11 @@ impl SlottedPage {
         Ok(sp)
     }
 
-    /// Returns `true` if the page is all zeros (never written to disk).
+    /// Returns `true` if the page has no valid slotted header (never initialized).
+    ///
+    /// A zeroed page has magic `0`. Any page written via [`SlottedPage::new`]
+    /// carries [`MAGIC`], so this is an O(1) way to distinguish free/unwritten
+    /// pages from real data without scanning the full 4 KiB buffer.
     pub fn is_empty_page(page: &Page) -> bool {
         page.as_bytes()[MAGIC_OFFSET..MAGIC_OFFSET + 4] == [0u8; 4]
     }
