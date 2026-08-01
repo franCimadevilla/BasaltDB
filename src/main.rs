@@ -1,11 +1,11 @@
-use std::io::{self, Write};
+use std::io::{stdin,stdout, Write};
 
 fn main() {
-    let stdin = io::stdin();
+    let stdin = stdin();
 
     loop {
         print!("> ");
-        io::stdout().flush().unwrap();
+        stdout().flush().unwrap();
 
         let mut input = String::new();
         stdin.read_line(&mut input).unwrap();
