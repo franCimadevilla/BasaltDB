@@ -1,0 +1,27 @@
+# BasaltDB documentation (MkDocs).
+
+site_name: BasaltDB
+site_description: Educational relational database engine implemented in Rust.
+site_author: BasaltDB contributors
+repo_url: https://github.com/franCimadevilla/BasaltDB
+docs_dir: docs
+
+theme:
+  name: material
+
+# Fail the build on broken links / missing nav entries instead of
+# silently publishing a broken site.
+validation:
+  absolute_links: warn
+  unrecognized_links: warn
+
+nav:
+  # IMPORTANT: add one entry here per new file in docs/phases/ so every
+  # phase deliberation doc gets its own published page.
+  - Home: index.md
+  - Setup & Tooling: instructions.md
+  - Key concepts:
+      - What is a page?: key-concepts/what-is-a-page.md
+  - Phases:
+      - Phase 1 — Storage engine: phases/phase-1.md
+      - Phase 2 — SQL parser: phases/phase-2.md
