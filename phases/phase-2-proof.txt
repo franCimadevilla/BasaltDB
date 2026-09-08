@@ -1,0 +1,353 @@
+================================================================================
+BasaltDB Phase 2 (SQL Parser) — Correctness Proof
+================================================================================
+Date:      2026-09-08 ~20:31 (machine local time)
+Crate:     basalt_db 0.1.0
+Toolchain: rustc 1.97.1 (8bab26f4f 2026-07-14), cargo 1.97.1 (c980f4866 2026-06-30)
+Commit:    6b3c2e4b48f6ca717dd26369d6c994aa680ce172 ("fix: removes whole io package inport")
+Spec:      docs/phases/phase-2.md
+Grammar:   src/parser/grammar.lalrpop (LALRPOP 0.23.1; lowercase rules,
+           UPPERCASE lexemes)
+Parser API: basalt_db::parser::parse(&str) -> Result<Statement, Error::Syntax>
+Tests:     tests/parser_tests.rs (51 tests)
+
+NOTE: this file is a point-in-time snapshot. To regenerate it, run:
+    cargo run --example parse_demo      (Part A transcript)
+    cargo test --test parser_tests      (Part B test log)
+The demo program is kept at examples/parse_demo.rs.
+
+--------------------------------------------------------------------------------
+PART A — Sample inputs and the Statements they produce
+(captured verbatim from `cargo run --example parse_demo`)
+--------------------------------------------------------------------------------
+
+=== 1. CREATE TABLE (all types + nullability forms) ===
+SQL: CREATE TABLE student (id INTEGER NOT NULL, name VARCHAR, active BOOLEAN)
+AST:
+CreateTable(
+    CreateTableStatement {
+        table_name: "student",
+        columns: [
+            ColumnDef {
+                name: "id",
+                data_type: Integer,
+                nullable: false,
+            },
+            ColumnDef {
+                name: "name",
+                data_type: Varchar,
+                nullable: true,
+            },
+            ColumnDef {
+                name: "active",
+                data_type: Boolean,
+                nullable: true,
+            },
+        ],
+    },
+)
+
+=== 2. INSERT without column list (multi-tuple, string escape, booleans) ===
+SQL: INSERT INTO student VALUES (1, 'O''Brien', TRUE), (2, 'Ann', FALSE)
+AST:
+Insert(
+    InsertStatement {
+        table_name: "student",
+        columns: None,
+        values: [
+            [
+                Integer(
+                    1,
+                ),
+                String(
+                    "O'Brien",
+                ),
+                Boolean(
+                    true,
+                ),
+            ],
+            [
+                Integer(
+                    2,
+                ),
+                String(
+                    "Ann",
+                ),
+                Boolean(
+                    false,
+                ),
+            ],
+        ],
+    },
+)
+
+=== 3. INSERT with column list ===
+SQL: INSERT INTO student (id, name) VALUES (3, 'Bo')
+AST:
+Insert(
+    InsertStatement {
+        table_name: "student",
+        columns: Some(
+            [
+                "id",
+                "name",
+            ],
+        ),
+        values: [
+            [
+                Integer(
+                    3,
+                ),
+                String(
+                    "Bo",
+                ),
+            ],
+        ],
+    },
+)
+
+=== 4. SELECT with WHERE (canonical phase-doc example) ===
+SQL: SELECT name FROM student WHERE age > 20
+AST:
+Select(
+    SelectStatement {
+        columns: [
+            Expr(
+                Column(
+                    "name",
+                ),
+            ),
+        ],
+        table: "student",
+        predicate: Some(
+            Binary {
+                op: Gt,
+                left: Column(
+                    "age",
+                ),
+                right: Literal(
+                    Integer(
+                        20,
+                    ),
+                ),
+            },
+        ),
+    },
+)
+
+=== 5. SELECT * with AND/OR/NOT precedence ===
+SQL: SELECT * FROM student WHERE a = 1 OR NOT b <> 'x' AND c > 2
+AST:
+Select(
+    SelectStatement {
+        columns: [
+            Wildcard,
+        ],
+        table: "student",
+        predicate: Some(
+            Binary {
+                op: Or,
+                left: Binary {
+                    op: Eq,
+                    left: Column(
+                        "a",
+                    ),
+                    right: Literal(
+                        Integer(
+                            1,
+                        ),
+                    ),
+                },
+                right: Binary {
+                    op: And,
+                    left: Not(
+                        Binary {
+                            op: Ne,
+                            left: Column(
+                                "b",
+                            ),
+                            right: Literal(
+                                String(
+                                    "x",
+                                ),
+                            ),
+                        },
+                    ),
+                    right: Binary {
+                        op: Gt,
+                        left: Column(
+                            "c",
+                        ),
+                        right: Literal(
+                            Integer(
+                                2,
+                            ),
+                        ),
+                    },
+                },
+            },
+        ),
+    },
+)
+Note: the tree shows the specified precedence OR < AND < NOT < comparison:
+top node Or, right child And, Not binding tighter than And.
+
+=== 6. UPDATE with assignments + WHERE ===
+SQL: UPDATE student SET name = 'Bo' WHERE id = 1
+AST:
+Update(
+    UpdateStatement {
+        table: "student",
+        assignments: [
+            (
+                "name",
+                Literal(
+                    String(
+                        "Bo",
+                    ),
+                ),
+            ),
+        ],
+        predicate: Some(
+            Binary {
+                op: Eq,
+                left: Column(
+                    "id",
+                ),
+                right: Literal(
+                    Integer(
+                        1,
+                    ),
+                ),
+            },
+        ),
+    },
+)
+
+=== 7. DELETE with WHERE ===
+SQL: DELETE FROM student WHERE id = 1
+AST:
+Delete(
+    DeleteStatement {
+        table: "student",
+        predicate: Some(
+            Binary {
+                op: Eq,
+                left: Column(
+                    "id",
+                ),
+                right: Literal(
+                    Integer(
+                        1,
+                    ),
+                ),
+            },
+        ),
+    },
+)
+
+=== 8. Case-insensitive keywords, identifier case preserved ===
+SQL: select * from Student where Age >= 20
+AST:
+Select(
+    SelectStatement {
+        columns: [
+            Wildcard,
+        ],
+        table: "Student",
+        predicate: Some(
+            Binary {
+                op: Ge,
+                left: Column(
+                    "Age",
+                ),
+                right: Literal(
+                    Integer(
+                        20,
+                    ),
+                ),
+            },
+        ),
+    },
+)
+
+=== 9. INVALID: unknown column type ===
+SQL: CREATE TABLE t (id FOO)
+ERROR: syntax: Syntax error at line 1, column 20: unexpected token Token(2, "FOO"); expected one of: BOOLEAN, INTEGER, VARCHAR
+
+=== 10. INVALID: missing table after FROM ===
+SQL: SELECT * FROM
+ERROR: syntax: Syntax error at line 1, column 14: unexpected end of input; expected one of: IDENT
+
+--------------------------------------------------------------------------------
+PART B — Automated test evidence
+(captured from `cargo test --test parser_tests`; full `cargo test` and
+`cargo clippy --all-targets` were also green at the time of writing)
+--------------------------------------------------------------------------------
+
+running 51 tests
+test create_table_tests::invalid_missing_table_name ... ok
+test delete_tests::valid_with_where_and_semicolon ... ok
+test error_tests::error_display_mentions_syntax ... ok
+test error_tests::invalid_token_reports_position ... ok
+test delete_tests::valid_without_where ... ok
+test create_table_tests::invalid_missing_rparen ... ok
+test create_table_tests::valid_trailing_semicolon ... ok
+test error_tests::empty_input_is_syntax_error ... ok
+test create_table_tests::valid_keywords_case_insensitive_idents_preserved ... ok
+test create_table_tests::valid_single_column ... ok
+test delete_tests::invalid_missing_table ... ok
+test create_table_tests::invalid_empty_column_list ... ok
+test create_table_tests::valid_nullability_forms ... ok
+test delete_tests::invalid_missing_from ... ok
+test create_table_tests::invalid_unknown_type ... ok
+test create_table_tests::invalid_trailing_comma ... ok
+test error_tests::multiline_error_reports_line_2 ... ok
+test expr_tests::valid_mixed_operand_kinds ... ok
+test error_tests::unrecognized_token_names_expectations ... ok
+test expr_tests::valid_or_binds_loosest ... ok
+test expr_tests::invalid_leading_and ... ok
+test expr_tests::invalid_empty_parens ... ok
+test expr_tests::invalid_dangling_operator ... ok
+test insert_tests::invalid_missing_values ... ok
+test insert_tests::invalid_unbalanced_paren ... ok
+test expr_tests::valid_left_associative_and ... ok
+test expr_tests::valid_not_binds_tighter_than_and ... ok
+test expr_tests::valid_parens_override_precedence ... ok
+test insert_tests::valid_lowercase_with_semicolon ... ok
+test insert_tests::invalid_unterminated_string ... ok
+test insert_tests::valid_string_escape_and_negative_int ... ok
+test lexing_tests::invalid_two_statements ... ok
+test select_tests::invalid_missing_from ... ok
+test lexing_tests::valid_identifier_case_preserved ... ok
+test insert_tests::valid_without_column_list ... ok
+test insert_tests::valid_with_column_list_and_tuples ... ok
+test select_tests::invalid_bare_select ... ok
+test lexing_tests::invalid_double_semicolon ... ok
+test lexing_tests::valid_keyword_prefix_is_identifier ... ok
+test select_tests::valid_column_list_with_where ... ok
+test select_tests::invalid_missing_table ... ok
+test select_tests::valid_wildcard_no_where ... ok
+test update_tests::invalid_missing_set ... ok
+test lexing_tests::valid_whitespace_variants ... ok
+test select_tests::valid_trailing_semicolon ... ok
+test update_tests::invalid_missing_eq ... ok
+test update_tests::valid_multiple_assignments_with_where ... ok
+test update_tests::invalid_empty_assignments ... ok
+test update_tests::valid_single_assignment_no_where ... ok
+test expr_tests::valid_all_comparison_ops ... ok
+test lexing_tests::valid_mixed_case_keywords_everywhere ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+--------------------------------------------------------------------------------
+CONCLUSION
+--------------------------------------------------------------------------------
+All five statement types (CREATE TABLE, INSERT, SELECT, UPDATE, DELETE)
+produce the specified ASTs; operator precedence (OR < AND < NOT <
+comparison), case-insensitive keywords with case-preserved identifiers,
+SQL string escapes, and optional trailing semicolons behave per spec; and
+invalid inputs are rejected as Error::Syntax with line/column diagnostics.
+Full suite at time of writing: 13 lib + 51 parser + 26 storage + 1 doctest,
+all passing; clippy clean (one pre-existing unused-import warning in
+src/error.rs, unrelated to the parser).
