@@ -1,0 +1,64 @@
+# BasaltDB docs: verify the MkDocs site on PRs, publish on push to main.
+#
+# - pull_request: `mkdocs build --strict` only (never publishes from a PR).
+# - push to main: build + `mkdocs gh-deploy` to the gh-pages branch.
+# After the first deploy, enable Pages in the repo settings with source
+# "Deploy from a branch" -> gh-pages.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch: # allow manual runs from the Actions tab
+
+permissions:
+  contents: write # required by mkdocs gh-deploy to push to gh-pages
+
+jobs:
+  build:
+    name: build docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MkDocs
+        run: pip install mkdocs mkdocs-material
+
+      - name: Build site (strict)
+        run: mkdocs build --strict
+
+  deploy:
+    name: publish docs
+    # Only deploy from main, never from a pull request.
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MkDocs
+        run: pip install mkdocs mkdocs-material
+
+      - name: Deploy to GitHub Pages
+        run: mkdocs gh-deploy --force

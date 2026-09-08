@@ -1,0 +1,264 @@
+use super::ast::{
+    BinaryOp, ColumnDef, CreateTableStatement, DataType, DeleteStatement, Expr,
+    InsertStatement, Literal, SelectItem, SelectStatement, Statement,
+    UpdateStatement,
+};
+
+grammar;
+
+// ---------------------------------------------------------------------------
+// Tokenizer precedence. Keywords (case-insensitive) win over identifiers:
+// an exact keyword (e.g. `SELECT`) lexes as the keyword, while a longer
+// word (e.g. `SELECTED`) still lexes as IDENT by longest match.
+// `_` pulls every other terminal (literals, `,`/`(`/`)`, number and string
+// regexes) into the lower-precedence level. Whitespace skipping stays
+// implicit (no custom ignore patterns are declared).
+// ---------------------------------------------------------------------------
+
+match {
+    r"(?i)CREATE"  => CREATE,
+    r"(?i)TABLE"   => TABLE,
+    r"(?i)INSERT"  => INSERT,
+    r"(?i)INTO"    => INTO,
+    r"(?i)VALUES"  => VALUES,
+    r"(?i)SELECT"  => SELECT,
+    r"(?i)FROM"    => FROM,
+    r"(?i)WHERE"   => WHERE,
+    r"(?i)UPDATE"  => UPDATE,
+    r"(?i)SET"     => SET,
+    r"(?i)DELETE"  => DELETE,
+    r"(?i)INTEGER" => INTEGER,
+    r"(?i)VARCHAR" => VARCHAR,
+    r"(?i)BOOLEAN" => BOOLEAN,
+    r"(?i)TRUE"    => TRUE,
+    r"(?i)FALSE"   => FALSE,
+    r"(?i)NULL"    => NULL,
+    r"(?i)NOT"     => NOT,
+    r"(?i)AND"     => AND,
+    r"(?i)OR"      => OR,
+} else {
+    r"[a-zA-Z_][a-zA-Z0-9_]*" => IDENT,
+    _
+}
+
+// ---------------------------------------------------------------------------
+// Syntactic rules (lowercase). Entry point is `statement`: exactly one
+// statement with an optional trailing semicolon (splitting multiple
+// statements is a REPL concern, see phase-2.md).
+// ---------------------------------------------------------------------------
+
+pub statement: Statement = {
+    <s:statement_inner> <e:SEMI?> => s,
+};
+
+statement_inner: Statement = {
+    <c:create_table> => Statement::CreateTable(c),
+    <i:insert>       => Statement::Insert(i),
+    <s:select>       => Statement::Select(s),
+    <u:update>       => Statement::Update(u),
+    <d:delete>       => Statement::Delete(d),
+};
+
+create_table: CreateTableStatement = {
+    CREATE TABLE <name:ident> LPAREN <cols:column_def_list> RPAREN => {
+        CreateTableStatement { table_name: name, columns: cols }
+    },
+};
+
+column_def_list: Vec<ColumnDef> = {
+    <mut v:(<column_def> ",")*> <e:column_def> => {
+        v.push(e);
+        v
+    },
+};
+
+column_def: ColumnDef = {
+    <name:ident> <t:data_type> <nullable:nullability?> => {
+        ColumnDef { name, data_type: t, nullable: nullable.unwrap_or(true) }
+    },
+};
+
+// `NULL` or omitted => nullable; `NOT NULL` => not nullable.
+nullability: bool = {
+    NOT NULL => false,
+    NULL     => true,
+};
+
+data_type: DataType = {
+    INTEGER => DataType::Integer,
+    VARCHAR => DataType::Varchar,
+    BOOLEAN => DataType::Boolean,
+};
+
+insert: InsertStatement = {
+    INSERT INTO <table:ident> <cols:opt_ident_list> VALUES <rows:tuple_list> => {
+        InsertStatement { table_name: table, columns: cols, values: rows }
+    },
+};
+
+opt_ident_list: Option<Vec<String>> = {
+    LPAREN <l:ident_list> RPAREN => Some(l),
+    => None,
+};
+
+ident_list: Vec<String> = {
+    <mut v:(<ident> ",")*> <e:ident> => {
+        v.push(e);
+        v
+    },
+};
+
+tuple_list: Vec<Vec<Literal>> = {
+    <mut v:(<tuple> ",")*> <e:tuple> => {
+        v.push(e);
+        v
+    },
+};
+
+tuple: Vec<Literal> = {
+    LPAREN <vals:literal_list> RPAREN => vals,
+};
+
+literal_list: Vec<Literal> = {
+    <mut v:(<literal> ",")*> <e:literal> => {
+        v.push(e);
+        v
+    },
+};
+
+select: SelectStatement = {
+    SELECT <cols:select_list> FROM <table:ident> <pred:opt_predicate> => {
+        SelectStatement { columns: cols, table, predicate: pred }
+    },
+};
+
+opt_predicate: Option<Expr> = {
+    WHERE <e:expr> => Some(e),
+    => None,
+};
+
+select_list: Vec<SelectItem> = {
+    STAR            => vec![SelectItem::Wildcard],
+    <items:expr_list> => items.into_iter().map(SelectItem::Expr).collect(),
+};
+
+expr_list: Vec<Expr> = {
+    <mut v:(<expr> ",")*> <e:expr> => {
+        v.push(e);
+        v
+    },
+};
+
+update: UpdateStatement = {
+    UPDATE <table:ident> SET <assigns:assignment_list> <pred:opt_predicate> => {
+        UpdateStatement { table, assignments: assigns, predicate: pred }
+    },
+};
+
+assignment_list: Vec<(String, Expr)> = {
+    <mut v:(<assignment> ",")*> <e:assignment> => {
+        v.push(e);
+        v
+    },
+};
+
+assignment: (String, Expr) = {
+    <name:ident> EQ <e:expr> => (name, e),
+};
+
+delete: DeleteStatement = {
+    DELETE FROM <table:ident> <pred:opt_predicate> => {
+        DeleteStatement { table, predicate: pred }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// Expressions. Precedence (lowest to highest): OR < AND < NOT < comparison.
+// Left-associative binary operators via left recursion (LALRPOP handles it).
+// ---------------------------------------------------------------------------
+
+expr: Expr = {
+    or_expr,
+};
+
+or_expr: Expr = {
+    <l:or_expr> OR <r:and_expr> => {
+        Expr::Binary { op: BinaryOp::Or, left: Box::new(l), right: Box::new(r) }
+    },
+    and_expr,
+};
+
+and_expr: Expr = {
+    <l:and_expr> AND <r:not_expr> => {
+        Expr::Binary { op: BinaryOp::And, left: Box::new(l), right: Box::new(r) }
+    },
+    not_expr,
+};
+
+not_expr: Expr = {
+    NOT <e:not_expr> => Expr::Not(Box::new(e)),
+    comparison,
+};
+
+comparison: Expr = {
+    <l:operand> <op:cmp_op> <r:operand> => {
+        Expr::Binary { op, left: Box::new(l), right: Box::new(r) }
+    },
+    operand,
+};
+
+cmp_op: BinaryOp = {
+    EQ => BinaryOp::Eq,
+    LT => BinaryOp::Lt,
+    GT => BinaryOp::Gt,
+    LE => BinaryOp::Le,
+    GE => BinaryOp::Ge,
+    NE => BinaryOp::Ne,
+};
+
+operand: Expr = {
+    <l:literal>     => Expr::Literal(l),
+    <name:ident>    => Expr::Column(name),
+    LPAREN <e:expr> RPAREN => e,
+};
+
+literal: Literal = {
+    <n:INT_LIT>    => Literal::Integer(n),
+    <s:STRING_LIT> => Literal::String(s),
+    TRUE           => Literal::Boolean(true),
+    FALSE          => Literal::Boolean(false),
+    NULL           => Literal::Null,
+};
+
+// ---------------------------------------------------------------------------
+// Lexemes (UPPERCASE). Keywords come from the `match` block above (matched
+// case-insensitively); identifiers keep their original spelling. `ident`
+// (lowercase) is a thin converter from the raw `IDENT` token text.
+// Symbols wrap fixed-string terminals; number/string lexemes are single
+// regex tokens (disjoint from IDENT, so no ambiguity).
+// ---------------------------------------------------------------------------
+
+ident: String = <s:IDENT> => s.to_string();
+
+INT_LIT: i64 = r"-?[0-9]+" => <>.parse().unwrap();
+
+// SQL strings: `'...'` with `''` as the escaped quote.
+STRING_LIT: String = r"'(''|[^'])*'" => {
+    let s = <>;
+    s[1..s.len() - 1].replace("''", "'")
+};
+
+// NOTE: list separators use the inline `","` literal on purpose. LALRPOP
+// excludes string literals from sequence values, so `(<column_def> ",")*`
+// collects `Vec<ColumnDef>`; the named `COMMA` terminal would inject an
+// extra `()` per element into the tuple instead.
+LPAREN: () = "(";
+RPAREN: () = ")";
+STAR: () = "*";
+SEMI: () = ";";
+EQ: () = "=";
+NE: () = "<>";
+LE: () = "<=";
+GE: () = ">=";
+LT: () = "<";
+GT: () = ">";

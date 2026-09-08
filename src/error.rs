@@ -35,6 +35,8 @@ pub enum Error {
     NotFound(String),
     /// An object was created twice (e.g. duplicate table name).
     Duplicate(String),
+    /// Syntax error in the query specified
+    Syntax(String),
 }
 
 impl fmt::Display for Error {
@@ -51,6 +53,7 @@ impl fmt::Display for Error {
             Error::Deserialize(msg) => write!(f, "deserialization error: {msg}"),
             Error::NotFound(msg) => write!(f, "not found: {msg}"),
             Error::Duplicate(msg) => write!(f, "duplicate: {msg}"),
+            Error::Syntax(msg) => write!(f, "syntax: {msg}"),
         }
     }
 }
