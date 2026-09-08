@@ -18,6 +18,7 @@
 
 // Declaration of the modules. 
 pub mod error;
+pub mod parser;
 pub mod storage;
 
 // Re-export key items for a cleaner public API.
