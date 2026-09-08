@@ -11,6 +11,10 @@ jobs:
   test:
     name: test + clippy
     runs-on: ubuntu-latest
+    # rust-toolchain.toml pins the Windows-GNU host for local dev; override it
+    # on the Linux runner (env var takes precedence over the file).
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

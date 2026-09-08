@@ -3,7 +3,7 @@
 //! BasaltDB follows the principle: *never panic for recoverable situations*.
 //! Every fallible operation returns `Result<T, Error>`.
 
-use std::{arch::x86_64::_MM_MANT_SIGN_NAN, fmt};
+use std::fmt;
 
 /// The central error type of the database engine.
 ///
@@ -35,7 +35,7 @@ pub enum Error {
     NotFound(String),
     /// An object was created twice (e.g. duplicate table name).
     Duplicate(String),
-    // Syntax error in the query specified
+    /// Syntax error in the query specified
     Syntax(String),
 }
 

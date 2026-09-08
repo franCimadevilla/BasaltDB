@@ -36,7 +36,10 @@ fn offset_to_line_col(input: &str, offset: usize) -> (usize, usize) {
     let offset = offset.min(input.len());
     let prefix = &input[..offset];
     let line = prefix.bytes().filter(|&b| b == b'\n').count() + 1;
-    let column = prefix.rsplit('\n').next().map_or(1, |l| l.len() + 1);
+    let column = prefix
+        .rsplit('\n')
+        .next()
+        .map_or(1, |l| l.chars().count() + 1);
     (line, column)
 }
 
